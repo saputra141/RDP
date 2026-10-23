@@ -1,52 +1,37 @@
 
-name: Test Windows Runner
+name: Test Windows RDP
 
 on:
   workflow_dispatch:
 
 jobs:
-  test-windows:
+  test-rdp:
     runs-on: windows-latest
     timeout-minutes: 100
 
     steps:
-      - name: Check Windows Runner
+      - name: Check Windows
         shell: powershell
         run: |
-          Write-Host "Windows runner aktif"
-          Write-Host "Windows version:"
+          Write-Host "Windows runner ready"
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
 
-      - name: Download Tailscale Installer
+      - name: Download Tailscale
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $installerPath = Join-Path $env:RUNNER_TEMP "tailscale.msi"
           $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-
-          Invoke-WebRequest -Uri $url -OutFile $installerPath
-
-          if (!(Test-Path -LiteralPath $installerPath)) {
-            throw "Installer tidak ditemukan"
-          }
-
-          Write-Host "Unduhan installer berhasil"
+          $installer = "$env:RUNNER_TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          if (!(Test-Path $installer)) { throw "Download failed" }
 
       - name: Install Tailscale
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $installerPath = Join-Path $env:RUNNER_TEMP "tailscale.msi"
-
-          $process = Start-Process -FilePath "msiexec.exe" `
-            -ArgumentList "/i `"$installerPath`" /quiet /norestart" `
-            -Wait -PassThru
-
-          if ($process.ExitCode -ne 0) {
-            throw "Instalasi gagal dengan kode $($process.ExitCode)"
-          }
-
-          Write-Host "Instalasi Tailscale berhasil"
+          $installer = "$env:RUNNER_TEMP\tailscale.msi"
+          $p = Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installation failed" }
 
       - name: Connect Tailscale
         shell: powershell
@@ -54,28 +39,23 @@ jobs:
           TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
           $ErrorActionPreference = "Stop"
-
           if ([string]::IsNullOrWhiteSpace($env:TAILSCALE_AUTH_KEY)) {
-            throw "GitHub Secret TAILSCALE_AUTH_KEY belum tersedia"
+            throw "GitHub Secret TAILSCALE_AUTH_KEY is missing"
           }
 
-          $ts = Join-Path $env:ProgramFiles "Tailscale\tailscale.exe"
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          if (!(Test-Path $ts)) { throw "Tailscale executable not found" }
 
-          if (!(Test-Path -LiteralPath $ts)) {
-            throw "tailscale.exe tidak ditemukan"
-          }
+          & $ts up "--authkey=$env:TAILSCALE_AUTH_KEY" "--hostname=gh-runner-$env:GITHUB_RUN_ID"
+          if ($LASTEXITCODE -ne 0) { throw "Tailscale connection failed" }
 
-          & $ts up --authkey="$env:TAILSCALE_AUTH_KEY" --hostname="gh-runner-$env:GITHUB_RUN_ID"
+          Write-Host "Tailscale connected"
+          & $ts ip -4
 
-          if ($LASTEXITCODE -ne 0) {
-            throw "Koneksi Tailscale gagal"
-          }
-
-          $ip = & $ts ip -4
-
-          if ($LASTEXITCODE -ne 0 -or !$ip) {
-            throw "Alamat IP Tailscale tidak ditemukan"
-          }
-
-          Write-Host "Koneksi Tailscale berhasil"
-          Write-Host "Tailscale IPv4: $ip"
+      - name: Check RDP
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          Get-Service TermService
+          Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
+          Write-Host "RDP check complete"
