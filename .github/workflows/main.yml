@@ -57,14 +57,29 @@ jobs:
               exit 1
           }
 
+      
       - name: Install Tailscale
+        shell: powershell
         run: |
+          $ErrorActionPreference = "Stop"
+
+          $installerPath = Join-Path $env:TEMP "tailscale.msi"
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP	ailscale.msi"
-          
+
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+
+          if (!(Test-Path $installerPath)) {
+            throw "Installer Tailscale tidak ditemukan."
+          }
+
+          $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$installerPath`" /quiet /norestart" -Wait -PassThru
+
+          if ($process.ExitCode -ne 0) {
+            throw "Instalasi Tailscale gagal dengan kode $($process.ExitCode)"
+          }
+
           Remove-Item $installerPath -Force
+
 
       - name: Establish Tailscale Connection
         run: |
