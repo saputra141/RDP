@@ -1,4 +1,3 @@
-
 name: Test Windows RDP
 
 on:
@@ -7,30 +6,28 @@ on:
 jobs:
   test-rdp:
     runs-on: windows-latest
-    timeout-minutes: 100
+    timeout-minutes: 360
 
     steps:
       - name: Check Windows
         shell: powershell
         run: |
-          Write-Host "Windows runner ready"
+          Write-Host "Windows Runner ready"
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
 
       - name: Download Tailscale
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installer = "$env:RUNNER_TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          if (!(Test-Path $installer)) { throw "Download failed" }
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.32.2-amd64.exe"
+          Invoke-WebRequest -Uri $url -OutFile tailscale.exe
+          if (!(Test-Path tailscale.exe)) { throw "Download failed" }
 
       - name: Install Tailscale
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $installer = "$env:RUNNER_TEMP\tailscale.msi"
-          $p = Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart" -Wait -PassThru
+          $p = Start-Process -FilePath .\tailscale.exe -ArgumentList "/quiet", "/norestart" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Installation failed" }
 
       - name: Connect Tailscale
@@ -42,13 +39,13 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:TAILSCALE_AUTH_KEY)) {
             throw "GitHub Secret TAILSCALE_AUTH_KEY is missing"
           }
-
+          
           $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
           if (!(Test-Path $ts)) { throw "Tailscale executable not found" }
-
-          & $ts up "--authkey=$env:TAILSCALE_AUTH_KEY" "--hostname=gh-runner-$env:GITHUB_RUN_ID"
+          
+          & $ts up --authkey="$env:TAILSCALE_AUTH_KEY" --hostname="gh-runner-$env:GITHUB_RUN_ID"
           if ($LASTEXITCODE -ne 0) { throw "Tailscale connection failed" }
-
+          
           Write-Host "Tailscale connected"
           & $ts ip -4
 
@@ -57,5 +54,10 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           Get-Service TermService
-          Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
-          Write-Host "RDP check complete"
+          
+      - name: Keep Runner Alive
+        shell: powershell
+        run: |
+          Write-Host "RDP siap digunakan! Runner akan tetap berjalan agar Anda bisa login..."
+          # Menunda proses selesai agar RDP tetap hidup selama ~5.8 jam (21000 detik)
+          Start-Sleep -Seconds 21000
