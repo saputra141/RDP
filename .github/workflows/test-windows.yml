@@ -19,7 +19,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.32.2-amd64.exe"
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe"
           Invoke-WebRequest -Uri $url -OutFile tailscale.exe
           if (!(Test-Path tailscale.exe)) { throw "Download failed" }
 
