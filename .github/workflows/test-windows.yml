@@ -15,6 +15,16 @@ jobs:
           Write-Host "Windows Runner ready"
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
 
+      - name: Set up RDP Password
+        shell: powershell
+        run: |
+          # Mengatur password untuk user default GitHub Actions (runneradmin)
+          net user runneradmin "WindowsRDP2026!"
+          # Mengaktifkan akses RDP di Firewall dan Registry
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+
       - name: Download Tailscale
         shell: powershell
         run: |
