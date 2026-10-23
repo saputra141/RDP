@@ -1,0 +1,55 @@
+name: Test Windows Runner
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Periksa Windows Runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Write-Host "Memeriksa Windows..."
+          Get-ComputerInfo |
+            Select-Object WindowsProductName,
+                          WindowsVersion
+
+          Write-Host "Memeriksa PowerShell..."
+          $PSVersionTable.PSVersion
+
+      - name: Unduh Installer Tailscale
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $installerPath = Join-Path `
+            $env:RUNNER_TEMP "tailscale.msi"
+
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+
+          Invoke-WebRequest `
+            -Uri $tsUrl `
+            -OutFile $installerPath
+
+          if (!(Test-Path -LiteralPath $installerPath)) {
+            throw "Installer tidak ditemukan."
+          }
+
+          $file = Get-Item -LiteralPath $installerPath
+
+          if ($file.Length -eq 0) {
+            throw "Installer kosong."
+          }
+
+          Write-Host "Unduhan berhasil."
+          Write-Host "Ukuran file: $($file.Length) byte"
+
+          Remove-Item -LiteralPath $installerPath -Force
