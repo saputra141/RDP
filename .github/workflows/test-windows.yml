@@ -1,10 +1,8 @@
+
 name: Test Windows Runner
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   test-windows:
@@ -12,44 +10,72 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Periksa Windows Runner
+      - name: Check Windows Runner
+        shell: powershell
+        run: |
+          Write-Host "Windows runner aktif"
+          Write-Host "Windows version:"
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion
+
+      - name: Download Tailscale Installer
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
+          $installerPath = Join-Path $env:RUNNER_TEMP "tailscale.msi"
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
 
-          Write-Host "Memeriksa Windows..."
-          Get-ComputerInfo |
-            Select-Object WindowsProductName,
-                          WindowsVersion
-
-          Write-Host "Memeriksa PowerShell..."
-          $PSVersionTable.PSVersion
-
-      - name: Unduh Installer Tailscale
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $installerPath = Join-Path `
-            $env:RUNNER_TEMP "tailscale.msi"
-
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-
-          Invoke-WebRequest `
-            -Uri $tsUrl `
-            -OutFile $installerPath
+          Invoke-WebRequest -Uri $url -OutFile $installerPath
 
           if (!(Test-Path -LiteralPath $installerPath)) {
-            throw "Installer tidak ditemukan."
+            throw "Installer tidak ditemukan"
           }
 
-          $file = Get-Item -LiteralPath $installerPath
+          Write-Host "Unduhan installer berhasil"
 
-          if ($file.Length -eq 0) {
-            throw "Installer kosong."
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installerPath = Join-Path $env:RUNNER_TEMP "tailscale.msi"
+
+          $process = Start-Process -FilePath "msiexec.exe" `
+            -ArgumentList "/i `"$installerPath`" /quiet /norestart" `
+            -Wait -PassThru
+
+          if ($process.ExitCode -ne 0) {
+            throw "Instalasi gagal dengan kode $($process.ExitCode)"
           }
 
-          Write-Host "Unduhan berhasil."
-          Write-Host "Ukuran file: $($file.Length) byte"
+          Write-Host "Instalasi Tailscale berhasil"
 
-          Remove-Item -LiteralPath $installerPath -Force
+      - name: Connect Tailscale
+        shell: powershell
+        env:
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ([string]::IsNullOrWhiteSpace($env:TAILSCALE_AUTH_KEY)) {
+            throw "GitHub Secret TAILSCALE_AUTH_KEY belum tersedia"
+          }
+
+          $ts = Join-Path $env:ProgramFiles "Tailscale\tailscale.exe"
+
+          if (!(Test-Path -LiteralPath $ts)) {
+            throw "tailscale.exe tidak ditemukan"
+          }
+
+          & $ts up --authkey="$env:TAILSCALE_AUTH_KEY" --hostname="gh-runner-$env:GITHUB_RUN_ID"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Koneksi Tailscale gagal"
+          }
+
+          $ip = & $ts ip -4
+
+          if ($LASTEXITCODE -ne 0 -or !$ip) {
+            throw "Alamat IP Tailscale tidak ditemukan"
+          }
+
+          Write-Host "Koneksi Tailscale berhasil"
+          Write-Host "Tailscale IPv4: $ip"
