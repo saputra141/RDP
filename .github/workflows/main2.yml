@@ -1,0 +1,106 @@
+
+name: Windows RDP Tailscale
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Configure Windows RDP
+        shell: powershell
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ([string]::IsNullOrWhiteSpace($env:RDP_PASSWORD)) {
+            throw "Tambahkan GitHub Secret RDP_PASSWORD dahulu."
+          }
+
+          $secure = ConvertTo-SecureString `
+            $env:RDP_PASSWORD -AsPlainText -Force
+
+          Set-LocalUser -Name "runneradmin" -Password $secure
+
+          Set-ItemProperty `
+            -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" `
+            -Name fDenyTSConnections -Value 0
+
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+          Set-ItemProperty `
+            -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
+            -Name UserAuthentication -Value 1
+
+          Start-Service TermService
+
+          Write-Host "RDP configured."
+
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe"
+          Invoke-WebRequest $url -OutFile "$env:TEMP\tailscale.exe"
+
+          $p = Start-Process `
+            "$env:TEMP\tailscale.exe" `
+            -ArgumentList "/quiet", "/norestart" `
+            -Wait -PassThru
+
+          if ($p.ExitCode -ne 0) {
+            throw "Tailscale installation failed."
+          }
+
+      - name: Connect Tailscale
+        shell: powershell
+        env:
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ([string]::IsNullOrWhiteSpace($env:TAILSCALE_AUTH_KEY)) {
+            throw "Tambahkan GitHub Secret TAILSCALE_AUTH_KEY dahulu."
+          }
+
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
+
+          if (!(Test-Path $ts)) {
+            throw "Tailscale executable not found."
+          }
+
+          & $ts up "--auth-key=$env:TAILSCALE_AUTH_KEY" `
+            "--hostname=gh-rdp-$env:GITHUB_RUN_ID"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tailscale connection failed."
+          }
+
+          Start-Sleep -Seconds 5
+          & $ts ip -4
+
+      - name: Check RDP and Display
+        shell: powershell
+        run: |
+          Write-Host "=== RDP Service ==="
+          Get-Service TermService
+
+          Write-Host "=== Display Adapters ==="
+          Get-CimInstance Win32_VideoController |
+            Select-Object Name, DriverVersion, CurrentRefreshRate
+
+          Write-Host "Target: 90 FPS / 90 Hz"
+          Write-Host "Actual performance is not guaranteed."
+
+      - name: Keep Runner Alive
+        shell: powershell
+        run: |
+          Write-Host "Runner active while this job runs."
+          Start-Sleep -Seconds 20000
